@@ -1,0 +1,125 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  username      String    @unique
+  avatar        String?
+  stripeAccountId String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  auctions      Auction[]  @relation("Seller")
+  bids          Bid[]
+  followers     Follow[]   @relation("Follower")
+  following     Follow[]   @relation("Following")
+  chatMessages  ChatMessage[]
+}
+
+model Auction {
+  id            String    @id @default(cuid())
+  title         String
+  description   String?
+  startingPrice Float
+  currentBid    Float     @default(0)
+  buyNowPrice   Float?
+  reservePrice  Float?
+  startTime     DateTime  @default(now())
+  endTime       DateTime
+  status        AuctionStatus @default(SCHEDULED)
+
+  // Live stream fields
+  streamId      String?   @unique
+  streamKey     String?
+  playbackId    String?
+  rtmpUrl       String?
+  assetId       String?
+
+  sellerId      String
+  seller        User      @relation("Seller", fields: [sellerId], references: [id])
+
+  bids          Bid[]
+  images        AuctionImage[]
+  chatMessages  ChatMessage[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+enum AuctionStatus {
+  SCHEDULED
+  LIVE
+  ENDED
+  SOLD
+  CANCELLED
+}
+
+model AuctionImage {
+  id          String   @id @default(cuid())
+  url         String
+  auctionId   String
+  auction     Auction  @relation(fields: [auctionId], references: [id])
+  order       Int
+  createdAt   DateTime @default(now())
+}
+
+model Bid {
+  id          String   @id @default(cuid())
+  amount      Float
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  auctionId   String
+  auction     Auction  @relation(fields: [auctionId], references: [id])
+  isAutoBid   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  follower    User     @relation("Follower", fields: [followerId], references: [id])
+  followingId String
+  following   User     @relation("Following", fields: [followingId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+}
+
+model ChatMessage {
+  id          String   @id @default(cuid())
+  message     String
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  auctionId   String
+  auction     Auction  @relation(fields: [auctionId], references: [id])
+  createdAt   DateTime @default(now())
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  type        NotificationType
+  userId      String
+  title       String
+  message     String
+  read        Boolean  @default(false)
+  data        Json?
+  createdAt   DateTime @default(now())
+}
+
+enum NotificationType {
+  BID_OUTBID
+  BID_WON
+  AUCTION_STARTING
+  AUCTION_ENDED
+  FOLLOW_ACTIVITY
+  SALE_COMPLETED
+}
