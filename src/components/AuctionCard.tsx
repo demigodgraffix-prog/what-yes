@@ -36,13 +36,13 @@ export const AuctionCard: React.FC<AuctionCardProps> = ({ auction, onBid, onView
         </div>
 
         <div className={`absolute bottom-2 left-2 text-xs font-medium px-2 py-1 rounded-full backdrop-blur-sm ${
-          timer.isExpired
+          timer.isEnded
             ? 'bg-gray-800/70 text-gray-400'
-            : timer.minutes < 5
+            : timer.timeRemaining.includes('m') && parseInt(timer.timeRemaining) < 5
               ? 'bg-red-500/70 text-white animate-pulse'
               : 'bg-black/70 text-white'
         }`}>
-          ⏱️ {timer.formatted}
+          {timer.timeRemaining}
         </div>
 
         <div className="absolute inset-0 bg-gradient-to-t from-purple-900/90 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-center pb-4">
