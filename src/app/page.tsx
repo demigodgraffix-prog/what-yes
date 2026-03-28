@@ -2,76 +2,88 @@
 
 import { useEffect, useState } from 'react';
 import { ProductCard } from '@/components/ProductCard';
-import { sampleAuctions } from '@/data/sampleAuctions';
-import { useAuctionStore } from '@/store/auctionStore';
-import { Search, Menu, Bell, User, Sun, Moon, ChevronDown, Flame, Clock, TrendingUp, Crown } from 'lucide-react';
+import { Search, Menu, Bell, User, Sun, Moon, Flame, Clock, TrendingUp, Crown } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 
-// Generate products with stable viewer counts
-const generateProducts = () => {
-  const baseProducts = sampleAuctions.map((auction, i) => ({
-    id: auction.id,
-    image: auction.images[0],
-    title: auction.title,
-    currentBid: auction.currentBid,
-    timeLeft: STATIC_TIMES[i % STATIC_TIMES.length],
-    viewers: 50 + (i * 17) % 150,
-    category: auction.category,
-    isLive: auction.status === 'active',
-    bidCount: auction.bidCount,
-  }));
+// Static time helper
+function getTimeLeft(endTime: string): string {
+  const end = new Date(endTime).getTime();
+  const now = Date.now();
+  const diff = end - now;
 
-  const products = [];
-  for (let i = 0; i < 4; i++) {
-    products.push(...baseProducts.map((p, idx) => ({
-      ...p,
-      id: `${p.id}-${i}-${idx}`,
-      viewers: 50 + ((i * 6 + idx) * 23) % 180,
-    })));
-  }
-  return products;
-};
+  if (diff <= 0) return 'Ended';
 
-// Static time values to avoid hydration mismatch
-const STATIC_TIMES = ['2h', '1h', '30m', '1d', '4h', '1h'];
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
 
-// Featured sellers data (Platinum & Gold tier)
-const featuredSellers = [
-  { id: '1', name: 'LuxuryWatches', avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100', tier: 'PLATINUM', sales: 520 },
-  { id: '2', name: 'DesignerBags', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100', tier: 'PLATINUM', sales: 485 },
-  { id: '3', name: 'TechDeals', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100', tier: 'GOLD', sales: 312 },
-  { id: '4', name: 'CardKingdom', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100', tier: 'GOLD', sales: 298 },
-  { id: '5', name: 'SneakerVault', avatar: 'https://images.unsplash.com/photo-1519345182560-3f2917c472ef?w=100', tier: 'PLATINUM', sales: 445 },
-  { id: '6', name: 'ArtCollector', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100', tier: 'GOLD', sales: 267 },
-  { id: '7', name: 'VintageFinds', avatar: 'https://images.unsplash.com/photo-1463453091185-61582044d556?w=100', tier: 'GOLD', sales: 234 },
-  { id: '8', name: 'RareGems', avatar: 'https://images.unsplash.com/photo-1527980965255-d3b416303d12?w=100', tier: 'PLATINUM', sales: 512 },
-];
+  if (hours >= 24) return `${Math.floor(hours / 24)}d`;
+  if (hours > 0) return `${hours}h`;
+  return `${minutes}m`;
+}
 
-// Promoted banner auction
-const mockPromotedBanner = {
-  id: '1',
-  title: 'Vintage Rolex Submariner 16610 - Complete Set',
-  seller: 'LuxuryWatches',
-  image: 'https://images.unsplash.com/photo-1547996160-81dfa63595aa?w=400',
-  currentBid: 8750,
-};
+interface FeaturedSeller {
+  id: string;
+  name: string;
+  avatar: string;
+  tier: 'PLATINUM' | 'GOLD' | 'SILVER' | 'BRONZE';
+  sales: number;
+  rating: number;
+}
+
+interface AuctionData {
+  id: string;
+  title: string;
+  description?: string;
+  startingPrice: number;
+  currentBid: number;
+  status: string;
+  endTime: string;
+  images: { url: string }[];
+  seller: { id: string; username: string };
+  bids: { amount: number }[];
+}
 
 export default function HomePage() {
-  const { setAuctions, setLoading } = useAuctionStore();
   const [darkMode, setDarkMode] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedFilter, setSelectedFilter] = useState('trending');
-  const [products] = useState(() => generateProducts());
+  const [auctions, setAuctions] = useState<AuctionData[]>([]);
+  const [featuredSellers, setFeaturedSellers] = useState<FeaturedSeller[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [promotedAuction, setPromotedAuction] = useState<AuctionData | null>(null);
 
   useEffect(() => {
-    setLoading(true);
-    setTimeout(() => {
-      setAuctions(sampleAuctions);
-      setLoading(false);
-    }, 500);
-  }, [setAuctions, setLoading]);
+    async function fetchData() {
+      try {
+        // Fetch auctions and featured sellers in parallel
+        const [auctionsRes, sellersRes] = await Promise.all([
+          fetch('/api/auctions'),
+          fetch('/api/sellers/featured')
+        ]);
+
+        const auctionsData = await auctionsRes.json();
+        const sellersData = await sellersRes.json();
+
+        setAuctions(auctionsData.auctions || []);
+        setFeaturedSellers(sellersData.sellers || []);
+
+        // Set first active auction as promoted if exists
+        const activeAuctions = (auctionsData.auctions || []).filter(
+          (a: AuctionData) => a.status === 'LIVE' || a.status === 'SCHEDULED'
+        );
+        if (activeAuctions.length > 0) {
+          setPromotedAuction(activeAuctions[0]);
+        }
+      } catch (error) {
+        console.error('Failed to fetch data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    fetchData();
+  }, []);
 
   const categories = ['All', 'Watches', 'Bags', 'Electronics', 'Collectibles', 'Art', 'Fashion', 'Sneakers', 'Sports', 'Toys'];
 
@@ -80,6 +92,19 @@ export default function HomePage() {
     { id: 'ending', label: 'Ending Soon', icon: Clock },
     { id: 'hot', label: 'Hot Deals', icon: Flame },
   ];
+
+  // Transform auctions to product format
+  const products = auctions.map((auction, i) => ({
+    id: auction.id,
+    image: auction.images?.[0]?.url || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400',
+    title: auction.title,
+    currentBid: auction.currentBid || auction.startingPrice,
+    timeLeft: getTimeLeft(auction.endTime),
+    viewers: 50 + (i * 17) % 150,
+    category: 'All',
+    isLive: auction.status === 'LIVE',
+    bidCount: auction.bids?.length || 0,
+  }));
 
   const filteredProducts = products.filter(product => {
     const matchesSearch = product.title.toLowerCase().includes(searchQuery.toLowerCase());
@@ -197,72 +222,78 @@ export default function HomePage() {
 
       {/* Main Content */}
       <main className="p-4">
-        {/* Featured Sellers Section */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-white font-bold text-lg flex items-center gap-2">
-              <Crown className="w-5 h-5 text-yellow-400" />
-              Featured Sellers
-              <span className="text-xs text-gray-400 font-normal">Platinum & Gold Tier</span>
-            </h2>
-            <Link href="/sellers" className="text-purple-400 text-sm hover:text-purple-300">
-              View All →
-            </Link>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
-            {featuredSellers.map((seller) => (
-              <Link
-                key={seller.id}
-                href={`/seller/${seller.id}`}
-                className="bg-[#1A1A1A]/80 rounded-lg p-3 text-center hover:ring-2 hover:ring-purple-500/50 transition-all"
-              >
-                <div className="relative w-16 h-16 mx-auto mb-2">
-                  <Image
-                    src={seller.avatar}
-                    alt={seller.name}
-                    fill
-                    className="rounded-full object-cover"
-                    unoptimized
-                  />
-                  {seller.tier === "PLATINUM" && (
-                    <div className="absolute -top-1 -right-1 w-6 h-6 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full flex items-center justify-center text-xs">
-                      💎
-                    </div>
-                  )}
-                  {seller.tier === "GOLD" && (
-                    <div className="absolute -top-1 -right-1 w-6 h-6 bg-gradient-to-r from-yellow-500 to-amber-500 rounded-full flex items-center justify-center text-xs">
-                      🥇
-                    </div>
-                  )}
-                </div>
-                <p className="text-white text-sm font-medium truncate">{seller.name}</p>
-                <p className="text-gray-400 text-xs">{seller.sales}+ sales</p>
+        {/* Featured Sellers Section - Only show if there are featured sellers */}
+        {featuredSellers.length > 0 && (
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-white font-bold text-lg flex items-center gap-2">
+                <Crown className="w-5 h-5 text-yellow-400" />
+                Featured Sellers
+                <span className="text-xs text-gray-400 font-normal">Top Performers</span>
+              </h2>
+              <Link href="/sellers" className="text-purple-400 text-sm hover:text-purple-300">
+                View All →
               </Link>
-            ))}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
+              {featuredSellers.map((seller) => (
+                <Link
+                  key={seller.id}
+                  href={`/seller/${seller.id}`}
+                  className="bg-[#1A1A1A]/80 rounded-lg p-3 text-center hover:ring-2 hover:ring-purple-500/50 transition-all"
+                >
+                  <div className="relative w-16 h-16 mx-auto mb-2">
+                    <Image
+                      src={seller.avatar}
+                      alt={seller.name}
+                      fill
+                      className="rounded-full object-cover"
+                      unoptimized
+                    />
+                    {seller.tier === "PLATINUM" && (
+                      <div className="absolute -top-1 -right-1 w-6 h-6 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full flex items-center justify-center text-xs">
+                        P
+                      </div>
+                    )}
+                    {seller.tier === "GOLD" && (
+                      <div className="absolute -top-1 -right-1 w-6 h-6 bg-gradient-to-r from-yellow-500 to-amber-500 rounded-full flex items-center justify-center text-xs">
+                        G
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-white text-sm font-medium truncate">{seller.name}</p>
+                  <p className="text-gray-400 text-xs">{seller.sales}+ sales</p>
+                </Link>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Promoted Auction Banner */}
-        {mockPromotedBanner && (
+        {/* Promoted Auction Banner - Only show if there's a promoted auction */}
+        {promotedAuction && (
           <div className="mb-8 bg-gradient-to-r from-purple-600/20 to-blue-600/20 rounded-xl p-4 border border-purple-500/30">
             <div className="flex items-center gap-4">
               <div className="w-20 h-20 relative rounded-lg overflow-hidden flex-shrink-0">
                 <Image
-                  src={mockPromotedBanner.image}
-                  alt={mockPromotedBanner.title}
+                  src={promotedAuction.images?.[0]?.url || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400'}
+                  alt={promotedAuction.title}
                   fill
                   className="object-cover"
                   unoptimized
                 />
               </div>
               <div className="flex-1 min-w-0">
-                <span className="text-purple-400 text-xs font-semibold">✨ PROMOTED AUCTION</span>
-                <h3 className="text-white font-bold truncate">{mockPromotedBanner.title}</h3>
-                <p className="text-gray-400 text-sm">by {mockPromotedBanner.seller}</p>
-                <p className="text-green-400 text-sm font-bold mt-1">Current Bid: ${mockPromotedBanner.currentBid.toLocaleString()}</p>
+                <span className="text-purple-400 text-xs font-semibold">
+                  {promotedAuction.status === 'LIVE' ? '🔴 LIVE NOW' : '✨ FEATURED AUCTION'}
+                </span>
+                <h3 className="text-white font-bold truncate">{promotedAuction.title}</h3>
+                <p className="text-gray-400 text-sm">by {promotedAuction.seller?.username || 'Seller'}</p>
+                <p className="text-green-400 text-sm font-bold mt-1">
+                  Current Bid: ${(promotedAuction.currentBid || promotedAuction.startingPrice).toLocaleString()}
+                </p>
               </div>
               <Link
-                href={`/auction/${mockPromotedBanner.id}`}
+                href={`/auction/${promotedAuction.id}`}
                 className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold text-sm whitespace-nowrap flex-shrink-0"
               >
                 View Auction
@@ -271,8 +302,33 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Auctions Grid */}
-        {filteredProducts.length > 0 ? (
+        {/* Empty State for New Platform */}
+        {!isLoading && filteredProducts.length === 0 && featuredSellers.length === 0 && (
+          <div className="text-center py-16">
+            <div className="w-20 h-20 bg-purple-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Crown className="w-10 h-10 text-purple-500" />
+            </div>
+            <h3 className="text-white text-xl font-bold mb-2">Welcome to WHAT-YES!</h3>
+            <p className="text-gray-400 mb-6 max-w-md mx-auto">
+              The live auction marketplace is ready. Be one of the first sellers to go live!
+            </p>
+            <Link
+              href="/apply-to-sell"
+              className="inline-block px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 rounded-lg text-white font-semibold"
+            >
+              Apply to Become a Seller
+            </Link>
+          </div>
+        )}
+
+        {/* Loading State */}
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center py-16">
+            <div className="w-10 h-10 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin mb-4" />
+            <p className={darkMode ? 'text-gray-500' : 'text-gray-400'}>Loading auctions...</p>
+          </div>
+        ) : filteredProducts.length > 0 ? (
+          /* Auctions Grid */
           <div
             className="grid gap-1.5"
             style={{
@@ -284,19 +340,19 @@ export default function HomePage() {
                 <ProductCard
                   {...product}
                   onClick={() => {
-                    window.location.href = `/auction/${product.id.split('-')[0]}`;
+                    window.location.href = `/auction/${product.id}`;
                   }}
                 />
               </div>
             ))}
           </div>
-        ) : (
+        ) : featuredSellers.length > 0 ? (
           <div className="text-center py-16">
             <p className={darkMode ? 'text-gray-500' : 'text-gray-400'}>
-              No auctions found matching your criteria.
+              No live auctions right now. Check back soon or follow a seller to get notified!
             </p>
           </div>
-        )}
+        ) : null}
       </main>
 
       {/* Bottom Navigation */}
